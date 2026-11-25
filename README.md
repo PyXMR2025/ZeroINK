@@ -1,4 +1,4 @@
-# 0x1 ZeroINK
+# ZeroINK
 
 > [Jackie](https://github.com/PyXMR2025)'s personal blog, built with [Hugo](https://gohugo.io/) + [PaperMod](https://github.com/adityatelange/hugo-PaperMod) and hosted on GitHub Pages and Cloudflare.
 

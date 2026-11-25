@@ -1,4 +1,4 @@
-# 0x1 ZeroINK
+# ZeroINK
 
 > Jackie 的个人博客，基于 [Hugo](https://gohugo.io/) + [PaperMod](https://github.com/adityatelange/hugo-PaperMod) 主题构建，并托管于 GitHub Pages 与 Cloudflare。
 
