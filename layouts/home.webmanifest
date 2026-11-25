@@ -1,6 +1,6 @@
 {
-  "name": {{ site.Title | jsonify }},
-  "short_name": "ZeroINK",
+  "name": "ZeroINK",
+  "short_name": "ZINK",
   "description": {{ site.Params.description | jsonify }},
   "id": "/",
   "start_url": "/",
