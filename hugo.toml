@@ -84,7 +84,7 @@ enableGitInfo = true
         Title = "欢迎来到 ZeroINK"
         Content = "Jackie 关于加密货币、隐私与开源的思考与研究。"
     [languages.zh.params.editPost]
-      URL = "https://github.com/PyXMR2025/0x1-ZeroINK/edit/main/content"
+      URL = "https://github.com/PyXMR2025/ZeroINK/edit/main/content"
       Text = "建议修改"
       appendFilePath = true
     [[languages.zh.menu.main]]
@@ -142,7 +142,7 @@ enableGitInfo = true
   tocopen = false
 
   [params.editPost]
-    URL = "https://github.com/PyXMR2025/0x1-ZeroINK/edit/main/content"
+    URL = "https://github.com/PyXMR2025/ZeroINK/edit/main/content"
     Text = "Suggest Changes"
     appendFilePath = true
 

@@ -6,7 +6,7 @@
 
 [![License: Code MIT](https://img.shields.io/badge/License-Code%20MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![License: Content CC BY-SA 4.0](https://img.shields.io/badge/License-Content%20CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-[![Deploy Status](https://github.com/PyXMR2025/0x1-ZeroINK/actions/workflows/ci.yml/badge.svg)](https://github.com/PyXMR2025/0x1-ZeroINK/actions)
+[![Deploy Status](https://github.com/PyXMR2025/ZeroINK/actions/workflows/ci.yml/badge.svg)](https://github.com/PyXMR2025/ZeroINK/actions)
 
 ## Local Development
 
@@ -14,8 +14,8 @@ To run this blog locally, you need **Hugo (Extended edition)** installed.
 
 1. **Clone the repository** (the theme is a Git submodule):
    ```bash
-   git clone --recurse-submodules https://github.com/PyXMR2025/0x1-ZeroINK.git
-   cd 0x1-ZeroINK
+   git clone --recurse-submodules https://github.com/PyXMR2025/ZeroINK.git
+   cd ZeroINK
    ```
    If you already cloned without submodules:
    ```bash

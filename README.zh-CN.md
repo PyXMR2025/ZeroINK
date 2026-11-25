@@ -10,8 +10,8 @@
 
 1. **克隆仓库**（主题为 Git submodule）：
    ```bash
-   git clone --recurse-submodules https://github.com/PyXMR2025/0x1-ZeroINK.git
-   cd 0x1-ZeroINK
+   git clone --recurse-submodules https://github.com/PyXMR2025/ZeroINK.git
+   cd ZeroINK
    ```
    如果克隆时未包含 submodule：
    ```bash
