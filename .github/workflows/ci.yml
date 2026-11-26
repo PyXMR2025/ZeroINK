@@ -12,9 +12,15 @@ permissions:
   actions: read
   pages: read
 
+env:
+  HUGO_VERSION: "0.170.0"
+  ESBUILD_VERSION: "0.28.2"
+
 concurrency:
+  # Never cancel a run in progress on main: a half-finished deploy/purge would
+  # leave the published site and the CDN cache out of sync.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   markdown-lint:
@@ -22,30 +28,58 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
       - name: Get changed Markdown files
         id: changed
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            RANGE="origin/${{ github.base_ref }}...HEAD"
-          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            RANGE="${{ github.event.before }}..${{ github.sha }}"
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="origin/$BASE_REF"
+            head="HEAD"
+          elif [ "$EVENT_NAME" = "push" ] \
+            && [ -n "$BEFORE_SHA" ] \
+            && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            base="$BEFORE_SHA"
+            head="$HEAD_SHA"
           else
-            RANGE="HEAD~1..HEAD"
+            base="HEAD~1"
+            head="HEAD"
           fi
-          echo "Diff range: $RANGE"
-          { echo "files<<EOF"
-            git diff --name-only --diff-filter=ACMR "$RANGE" -- '*.md'
+
+          # A force-push can leave the recorded base unreachable.
+          if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+            echo "::warning::Base revision $base is unreachable; falling back to HEAD~1."
+            base="HEAD~1"
+            head="HEAD"
+          fi
+
+          if git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+            echo "Diff range: $base..$head"
+            files=$(git diff --name-only --diff-filter=ACMR "$base" "$head" -- '*.md')
+          else
+            echo "No usable base revision; linting all tracked Markdown."
+            files=$(git ls-files '*.md')
+          fi
+
+          {
+            echo "files<<EOF"
+            printf '%s\n' "$files" | sed '/^$/d'
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Lint Markdown
         if: steps.changed.outputs.files != ''
-        uses: DavidAnson/markdownlint-cli2-action@v25
+        uses: DavidAnson/markdownlint-cli2-action@3ce8f712b5d8f31acd8e201be6d97e3d2bb23eb7 # v25
         continue-on-error: false
         with:
           globs: ${{ steps.changed.outputs.files }}
@@ -55,13 +89,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: recursive
           fetch-depth: 0
 
       - name: Report override drift
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
           # GitHub Actions runs bash with `-e -o pipefail`; clear -e so this
           # reporting job never fails the workflow.
@@ -80,9 +118,9 @@ jobs:
           echo "Submodule: $SUBMODULE_PATH"
 
           # Determine the base revision this change started from.
-          case "${{ github.event_name }}" in
-            pull_request) BASE="origin/${{ github.base_ref }}" ;;
-            push)         BASE="${{ github.event.before }}" ;;
+          case "$EVENT_NAME" in
+            pull_request) BASE="origin/$BASE_REF" ;;
+            push)         BASE="$BEFORE_SHA" ;;
             *)            BASE="HEAD~1" ;;
           esac
           if [ "$BASE" = "0000000000000000000000000000000000000000" ] \
@@ -138,8 +176,15 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          # Every partial this project overrides.
-          mapfile -t OVERRIDES < <(cd layouts 2>/dev/null && find _partials -type f 2>/dev/null | sed 's|^|layouts/|' | sort)
+          # Every partial this project overrides. Both layouts/_partials (the
+          # current location) and layouts/partials (legacy) are scanned so an
+          # override can never hide from this report.
+          mapfile -t OVERRIDES < <(
+            cd layouts 2>/dev/null || exit 0
+            { find _partials -type f 2>/dev/null | sed 's|^|layouts/|'
+              find partials -type f 2>/dev/null | sed 's|^|layouts/|'
+            } | sort -u
+          )
           echo "Overrides found: ${#OVERRIDES[@]}"
 
           NEED_SYNC=()
@@ -202,15 +247,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: true
           fetch-depth: 0
 
       - name: Set up Hugo
-        uses: peaceiris/actions-hugo@v3
+        uses: peaceiris/actions-hugo@d1c81a15d4e6dca7086a17b9c2565cb70fd576bf # v3
         with:
-          hugo-version: "0.170.0"
+          hugo-version: ${{ env.HUGO_VERSION }}
           extended: true
 
       - name: Build site
@@ -232,7 +277,7 @@ jobs:
               continue
             fi
             echo "Minifying $f"
-            npx --yes esbuild@0.28.2 "$f" --minify --outfile="$f" --allow-overwrite
+            npx --yes "esbuild@${ESBUILD_VERSION}" "$f" --minify --outfile="$f" --allow-overwrite
           done
 
       - name: Verify build output
@@ -242,8 +287,17 @@ jobs:
           # Minified output must be a single line
           test "$(wc -l < public/sw.js | tr -d ' ')" -le 1
 
+      - name: Upload built site
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: site
+          path: public
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
   deploy:
-    name: Build and publish to gh-pages
+    name: Publish to gh-pages
     needs: build
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
@@ -251,41 +305,16 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Download built site
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          submodules: true
-          fetch-depth: 0
-
-      - name: Set up Hugo
-        uses: peaceiris/actions-hugo@v3
-        with:
-          hugo-version: "0.170.0"
-          extended: true
-
-      - name: Build site
-        run: hugo --gc --minify --cleanDestinationDir
-
-      - name: Minify static JS/CSS
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s globstar nullglob
-
-          # Hugo already minifies rendered HTML/XML/JSON and every asset that
-          # goes through its resource pipeline. Files copied verbatim from
-          # static/ (e.g. sw.js) are left untouched, so minify them here.
-          # Fingerprinted bundles are skipped: their SRI hashes are embedded
-          # in the HTML and would break if their content changed.
-          for f in public/**/*.js public/**/*.css; do
-            if [[ "$f" =~ \.[0-9a-f]{32,}\.(js|css)$ ]]; then
-              continue
-            fi
-            echo "Minifying $f"
-            npx --yes esbuild@0.28.2 "$f" --minify --outfile="$f" --allow-overwrite
-          done
+          name: site
+          path: public
 
       - name: Publish to gh-pages branch
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public
@@ -295,7 +324,6 @@ jobs:
           user_name: github-actions[bot]
           user_email: 41898282+github-actions[bot]@users.noreply.github.com
           commit_message: "deploy: ${{ github.sha }}"
-          # Uncomment when the custom domain is configured in GitHub Pages:
           cname: blog.zjackie.ink
 
   indexnow:
@@ -305,15 +333,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+
+      - name: Resolve IndexNow key
+        id: key
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # The key file is public (static/<32-hex>.txt) and must contain
+          # exactly its own filename stem; derive the key from it instead of
+          # keeping a second copy in a repository secret.
+          mapfile -t keys < <(
+            find static -maxdepth 1 -type f -name '*.txt' -printf '%f\n' \
+              | grep -E '^[0-9a-f]{32}\.txt$' || true
+          )
+          if [ "${#keys[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one static/<32-hex>.txt IndexNow key file, found ${#keys[@]}."
+            exit 1
+          fi
+          key="${keys[0]%.txt}"
+          if [ "$(tr -d '\r\n' < "static/${keys[0]}")" != "$key" ]; then
+            echo "::error::static/${keys[0]} must contain exactly its filename stem (${key})."
+            exit 1
+          fi
+          echo "key=$key" >> "$GITHUB_OUTPUT"
 
       - name: Build URL list from changed content files
         id: urls
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -321,7 +374,7 @@ jobs:
           # pushes are fully covered; fall back to the previous commit.
           # Restrict to main-branch push runs: a successful PR run would
           # otherwise poison the diff base with a non-main head_sha.
-          prev=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?status=success&branch=main&event=push&per_page=1" \
+          prev=$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?status=success&branch=main&event=push&per_page=1" \
             --jq '.workflow_runs[0].head_sha' 2>/dev/null || true)
           if [ -n "$prev" ] && git cat-file -e "$prev^{commit}" 2>/dev/null; then
             echo "Diff range: $prev..HEAD"
@@ -406,20 +459,16 @@ jobs:
       - name: Submit to IndexNow
         if: steps.urls.outputs.skip != 'true'
         env:
-          INDEX_NOW_API_KEY: ${{ secrets.INDEX_NOW_API_KEY }}
+          INDEX_NOW_KEY: ${{ steps.key.outputs.key }}
           URL_LIST: ${{ steps.urls.outputs.list }}
         run: |
-          if [ -z "$INDEX_NOW_API_KEY" ]; then
-            echo "::error::Secret INDEX_NOW_API_KEY is empty. Set it in Settings → Secrets and variables → Actions (repository secrets, not environment secrets)."
-            exit 1
-          fi
-          echo "Key length: ${#INDEX_NOW_API_KEY}"
+          set -euo pipefail
           echo "URL count: $(jq length <<< "$URL_LIST")"
 
           jq -n \
             --arg host "blog.zjackie.ink" \
-            --arg key "$INDEX_NOW_API_KEY" \
-            --arg keyLocation "https://blog.zjackie.ink/${INDEX_NOW_API_KEY}.txt" \
+            --arg key "$INDEX_NOW_KEY" \
+            --arg keyLocation "https://blog.zjackie.ink/${INDEX_NOW_KEY}.txt" \
             --argjson urlList "$URL_LIST" \
             '{host: $host, key: $key, keyLocation: $keyLocation, urlList: $urlList}' > payload.json
 
@@ -446,13 +495,14 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
           baseline=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           echo "Waiting for a Pages build finished after $baseline ..."
           baseline_ts=$(( $(date -u -d "$baseline" +%s) - 60 ))   # small clock-skew tolerance
           deadline=$((SECONDS + 600))   # 10 min timeout
           while true; do
-            if build=$(gh api "repos/${{ github.repository }}/pages/builds/latest" --jq '{status, updated_at}' 2>/dev/null); then
+            if build=$(gh api "repos/${REPO}/pages/builds/latest" --jq '{status, updated_at}' 2>/dev/null); then
               status=$(jq -r '.status' <<< "$build")
               updated_at=$(jq -r '.updated_at' <<< "$build")
               updated_ts=$(date -u -d "$updated_at" +%s)
@@ -474,19 +524,15 @@ jobs:
           done
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          submodules: true
           fetch-depth: 2
 
-      - name: Set up Hugo
-        uses: peaceiris/actions-hugo@v3
+      - name: Download built site
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          hugo-version: "0.170.0"
-          extended: true
-
-      - name: Build site
-        run: hugo --gc --minify --cleanDestinationDir
+          name: site
+          path: public
 
       - name: Purge Cloudflare cache
         shell: bash
