@@ -6,6 +6,11 @@ const ASSET_CACHE = `assets-${VERSION}`;
 const OFFLINE_FALLBACK = "/";
 const ASSET_EXT =
   /\.(?:css|js|json|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|webmanifest)$/;
+// Same-origin 200 responses are the only ones that carry a complete asset
+// body; never persist 204/206/3xx, error responses, or opaque cross-origin
+// responses as if they were the real file.
+const isCacheable = (response) =>
+  response.status === 200 && response.type === "basic";
 
 self.addEventListener("install", () => self.skipWaiting());
 
@@ -16,7 +21,13 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => ![PAGE_CACHE, ASSET_CACHE].includes(key))
+            // Drop caches from older VERSIONs, but only the ones this worker
+            // owns (pages-*/assets-*), never unrelated caches on the origin.
+            .filter(
+              (key) =>
+                (key.startsWith("pages-") || key.startsWith("assets-")) &&
+                ![PAGE_CACHE, ASSET_CACHE].includes(key)
+            )
             .map((key) => caches.delete(key))
         )
       )
@@ -34,7 +45,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (response.status === 200) {
+          if (isCacheable(response)) {
             const copy = response.clone();
             caches.open(PAGE_CACHE).then((cache) => cache.put(request, copy));
           }
@@ -65,9 +76,7 @@ self.addEventListener("fetch", (event) => {
       caches.open(ASSET_CACHE).then(async (cache) => {
         const cached = await cache.match(request);
         const network = fetch(request).then((response) => {
-          // Only a full 200 carries a complete asset body; never persist
-          // 204/206/3xx or error responses as if they were the real file.
-          if (response.status === 200) cache.put(request, response.clone());
+          if (isCacheable(response)) cache.put(request, response.clone());
           return response;
         });
         if (cached) {

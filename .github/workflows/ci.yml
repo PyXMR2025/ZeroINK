@@ -500,9 +500,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     concurrency:
-      # Share the publisher lock so a purge never overlaps a deploy.
-      group: gh-pages-publish
-      cancel-in-progress: true
+      # Purge gets its own non-cancellable lock: interrupting a purge halfway
+      # would leave part of the cache stale. A newer deploy can run alongside,
+      # and its own purge follows once this one finishes.
+      group: gh-pages-purge
+      cancel-in-progress: false
     steps:
       - name: Wait for gh-pages build
         shell: bash
@@ -546,6 +548,14 @@ jobs:
         with:
           name: site
           path: public
+
+      - name: Verify downloaded site
+        shell: bash
+        run: |
+          if [ ! -f public/index.html ]; then
+            echo "::error::Artifact 'site' is missing, expired, or this job was re-run after it was deleted. Re-run the whole workflow instead of this job alone."
+            exit 1
+          fi
 
       - name: Purge Cloudflare cache
         shell: bash
