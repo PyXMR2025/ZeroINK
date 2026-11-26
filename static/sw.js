@@ -34,7 +34,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (response.ok) {
+          if (response.status === 200) {
             const copy = response.clone();
             caches.open(PAGE_CACHE).then((cache) => cache.put(request, copy));
           }
@@ -65,7 +65,9 @@ self.addEventListener("fetch", (event) => {
       caches.open(ASSET_CACHE).then(async (cache) => {
         const cached = await cache.match(request);
         const network = fetch(request).then((response) => {
-          if (response.ok) cache.put(request, response.clone());
+          // Only a full 200 carries a complete asset body; never persist
+          // 204/206/3xx or error responses as if they were the real file.
+          if (response.status === 200) cache.put(request, response.clone());
           return response;
         });
         if (cached) {

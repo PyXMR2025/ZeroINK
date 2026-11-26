@@ -17,10 +17,9 @@ env:
   ESBUILD_VERSION: "0.28.2"
 
 concurrency:
-  # Never cancel a run in progress on main: a half-finished deploy/purge would
-  # leave the published site and the CDN cache out of sync.
+  # Latest push wins: a newer run cancels the one in progress.
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: true
 
 jobs:
   markdown-lint:
@@ -301,6 +300,11 @@ jobs:
     needs: build
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
+    concurrency:
+      # One publisher at a time across all refs. A newer run cancels an
+      # in-flight publish, so the site always converges on the newest commit.
+      group: gh-pages-publish
+      cancel-in-progress: true
     permissions:
       contents: write
     steps:
@@ -348,11 +352,16 @@ jobs:
           # keeping a second copy in a repository secret.
           mapfile -t keys < <(
             find static -maxdepth 1 -type f -name '*.txt' -printf '%f\n' \
-              | grep -E '^[0-9a-f]{32}\.txt$' || true
+              | grep -E '^[0-9a-f]{32}\.txt$' | sort || true
           )
-          if [ "${#keys[@]}" -ne 1 ]; then
-            echo "::error::Expected exactly one static/<32-hex>.txt IndexNow key file, found ${#keys[@]}."
+          if [ "${#keys[@]}" -eq 0 ]; then
+            echo "::error::No static/<32-hex>.txt IndexNow key file found."
             exit 1
+          fi
+          if [ "${#keys[@]}" -gt 1 ]; then
+            # Rotating keys may briefly coexist; any hosted key is valid, so
+            # pick deterministically instead of failing the whole pipeline.
+            echo "::warning::Multiple IndexNow key files found (${keys[*]}); using ${keys[0]}."
           fi
           key="${keys[0]%.txt}"
           if [ "$(tr -d '\r\n' < "static/${keys[0]}")" != "$key" ]; then
@@ -490,6 +499,10 @@ jobs:
     needs: deploy
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
+    concurrency:
+      # Share the publisher lock so a purge never overlaps a deploy.
+      group: gh-pages-publish
+      cancel-in-progress: true
     steps:
       - name: Wait for gh-pages build
         shell: bash
