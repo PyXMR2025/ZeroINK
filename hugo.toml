@@ -16,7 +16,6 @@ enableGitInfo = true
   pagerSize = 10
 
 [permalinks]
-  posts = "/posts/:slug/"
   share = "/share/:slug/"
   research = "/research/:slug/"
 
@@ -118,7 +117,7 @@ enableGitInfo = true
   description = "Jackie's thoughts and research on cryptocurrency, privacy, and open source."
   author = "Jackie"
   images = ["images/default/og-default.png"]
-  mainSections = ["posts", "share", "research"]
+  mainSections = ["share", "research"]
 
   defaultTheme = "auto"
   disableThemeToggle = false
@@ -178,6 +177,9 @@ enableGitInfo = true
     lineNos = true
     style = "monokai"
   [markup.goldmark.renderer]
+    # Raw HTML in Markdown is allowed. Content PRs (editPost links point
+    # straight at content/) must therefore be reviewed line by line for
+    # injected <script> or phishing markup.
     unsafe = true
 
 [taxonomies]

@@ -1,7 +1,16 @@
-const VERSION = "v2";
+// Bump VERSION whenever files under static/ change, since those are served
+// without content hashes and would otherwise stay stale in client caches.
+const VERSION = "v3";
 const PAGE_CACHE = `pages-${VERSION}`;
 const ASSET_CACHE = `assets-${VERSION}`;
-const ASSET_EXT = /\.(?:css|js|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|webmanifest)$/;
+const OFFLINE_FALLBACK = "/";
+const ASSET_EXT =
+  /\.(?:css|js|json|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|webmanifest)$/;
+// Same-origin 200 responses are the only ones that carry a complete asset
+// body; never persist 204/206/3xx, error responses, or opaque cross-origin
+// responses as if they were the real file.
+const isCacheable = (response) =>
+  response.status === 200 && response.type === "basic";
 
 self.addEventListener("install", () => self.skipWaiting());
 
@@ -12,7 +21,13 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => ![PAGE_CACHE, ASSET_CACHE].includes(key))
+            // Drop caches from older VERSIONs, but only the ones this worker
+            // owns (pages-*/assets-*), never unrelated caches on the origin.
+            .filter(
+              (key) =>
+                (key.startsWith("pages-") || key.startsWith("assets-")) &&
+                ![PAGE_CACHE, ASSET_CACHE].includes(key)
+            )
             .map((key) => caches.delete(key))
         )
       )
@@ -30,27 +45,46 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(PAGE_CACHE).then((cache) => cache.put(request, copy));
+          if (isCacheable(response)) {
+            const copy = response.clone();
+            caches.open(PAGE_CACHE).then((cache) => cache.put(request, copy));
+          }
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(() =>
+          caches
+            .match(request)
+            .then((cached) => cached || caches.match(OFFLINE_FALLBACK))
+            .then(
+              (fallback) =>
+                fallback ||
+                new Response("Offline", {
+                  status: 503,
+                  headers: { "Content-Type": "text/plain; charset=utf-8" },
+                })
+            )
+        )
     );
     return;
   }
 
-  // Static assets: cache-first
+  // Static assets: stale-while-revalidate so unhashed files (images, sw.js
+  // payloads, search index) refresh in the background on the next visit
+  // instead of being pinned forever.
   if (ASSET_EXT.test(new URL(request.url).pathname)) {
     event.respondWith(
-      caches.match(request).then(
-        (cached) =>
-          cached ||
-          fetch(request).then((response) => {
-            const copy = response.clone();
-            caches.open(ASSET_CACHE).then((cache) => cache.put(request, copy));
-            return response;
-          })
-      )
+      caches.open(ASSET_CACHE).then(async (cache) => {
+        const cached = await cache.match(request);
+        const network = fetch(request).then((response) => {
+          if (isCacheable(response)) cache.put(request, response.clone());
+          return response;
+        });
+        if (cached) {
+          network.catch(() => {});
+          return cached;
+        }
+        return network;
+      })
     );
   }
 });
