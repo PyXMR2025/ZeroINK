@@ -47,7 +47,12 @@ self.addEventListener("fetch", (event) => {
         .then((response) => {
           if (isCacheable(response)) {
             const copy = response.clone();
-            caches.open(PAGE_CACHE).then((cache) => cache.put(request, copy));
+            event.waitUntil(
+              caches
+                .open(PAGE_CACHE)
+                .then((cache) => cache.put(request, copy))
+                .catch(() => {})
+            );
           }
           return response;
         })
@@ -76,11 +81,15 @@ self.addEventListener("fetch", (event) => {
       caches.open(ASSET_CACHE).then(async (cache) => {
         const cached = await cache.match(request);
         const network = fetch(request).then((response) => {
-          if (isCacheable(response)) cache.put(request, response.clone());
+          if (isCacheable(response)) {
+            event.waitUntil(
+              cache.put(request, response.clone()).catch(() => {})
+            );
+          }
           return response;
         });
         if (cached) {
-          network.catch(() => {});
+          event.waitUntil(network.catch(() => {}));
           return cached;
         }
         return network;
