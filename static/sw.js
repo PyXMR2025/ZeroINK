@@ -1,6 +1,6 @@
 // Bump VERSION whenever files under static/ change, since those are served
 // without content hashes and would otherwise stay stale in client caches.
-const VERSION = "v3";
+const VERSION = "v4";
 const PAGE_CACHE = `pages-${VERSION}`;
 const ASSET_CACHE = `assets-${VERSION}`;
 const OFFLINE_FALLBACK = "/";
