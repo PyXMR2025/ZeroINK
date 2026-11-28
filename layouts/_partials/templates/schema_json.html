@@ -59,7 +59,7 @@
   ]
 }
 </script>
-{{- if .IsPage }}
+{{- if and .IsPage (not .Params.robotsNoIndex) (not .PublishDate.IsZero) }}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
