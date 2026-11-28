@@ -2,9 +2,9 @@
   "name": "ZeroINK",
   "short_name": "ZINK",
   "description": {{ site.Params.description | jsonify }},
-  "id": "/",
-  "start_url": "/",
-  "scope": "/",
+  "id": {{ site.Home.RelPermalink | jsonify }},
+  "start_url": {{ site.Home.RelPermalink | jsonify }},
+  "scope": {{ site.Home.RelPermalink | jsonify }},
   "icons": [
     {
       "src": "/web-app-manifest-192x192-rounded.png",
